@@ -135,16 +135,17 @@ class CifarGanModel(object):
         # Create placeholder for input
         self.images = tf.placeholder(tf.uint8, (None, IMAGE_HEIGHT, IMAGE_WIDTH, 3), name='images')
         self.labels = tf.placeholder(tf.uint8, (None, 1), name='labels')
-        return self.images, self.labels
+        self.z = tf.placeholder(tf.float32, (None, Z_DIM), name='z')
+        return self.images, self.labels, self.z
 
     def build_model(self, is_training=True):        
         # Input placeholders
-        images, labels = self.input()
+        images, labels, z = self.input()
         
         # Create a placeholder for z.
         # You can create and feed z outside of model builder
-        z = tf.random.normal([BATCH_SIZE, Z_DIM], name='z_train')
-        z = tf.placeholder_with_default(z, (None, Z_DIM), name='input_z')
+        #z = tf.random.normal([BATCH_SIZE, Z_DIM], name='z_train')
+        #z = tf.placeholder_with_default(z, (None, Z_DIM), name='input_z')
 
         # Convert image from uint8 to float32.
         # Normalize.
@@ -180,8 +181,8 @@ class CifarGanModel(object):
         ''' This is for single GPU.
             You don't need to aggregate gradients. 
             So we use minimize() '''
-        d_opt = tf.train.AdamOptimizer(0.0001, beta1=0.5, beta2=0.99, epsilon=1e-6)
-        g_opt = tf.train.AdamOptimizer(0.0001, beta1=0.5, beta2=0.99, epsilon=1e-6)        
+        d_opt = tf.train.AdamOptimizer(0.0002, beta1=0.5, beta2=0.99, epsilon=1e-6)
+        g_opt = tf.train.AdamOptimizer(0.0002, beta1=0.5, beta2=0.99, epsilon=1e-6)        
         d_min = d_opt.minimize(self.d_loss, var_list=self.d_vars)
         g_min = g_opt.minimize(self.g_loss, var_list=self.g_vars)        
         return d_min, g_min
@@ -237,7 +238,8 @@ class CifarGanTrainer(object):
                             # make a batch
                             image_batch, label_batch = sess.run(next_batch)
                             feed_dict = {model.images: image_batch,
-                                         model.labels: label_batch}
+                                         model.labels: label_batch,
+                                         model.z: np.random.randn(BATCH_SIZE, Z_DIM).astype(np.float32)}
                             # optimize D --> G
                             # make merged summary when training G
                             _, _d_loss = sess.run([d_min, model.d_loss], feed_dict=feed_dict)
@@ -261,7 +263,8 @@ class CifarGanTrainer(object):
                 target_tensor = tf.get_default_graph().get_tensor_by_name(
                     os.path.join(G_NAME, 'gen_out:0'))
                 samples = sess.run(target_tensor, 
-                    feed_dict={model.labels: np.zeros([BATCH_SIZE, 1], np.uint8)}) # feed dummy labels
+                    feed_dict={model.labels: np.zeros([BATCH_SIZE, 1], np.uint8),
+                               model.z: np.random.randn(BATCH_SIZE, Z_DIM).astype(np.float32)}) # feed dummy labels
                 samples = 127.5*(samples+1)
                 samples = np.clip(samples, 0, 255).astype(np.uint8)                
                 # Make and save snapshot.
@@ -409,7 +412,8 @@ class CifarGanTester(object):
             uid = 0 # unique id of each generated image
             repeats = (50000+BATCH_SIZE-1)//BATCH_SIZE
             for _ in tqdm(range(repeats)):
-                feed_dict = {model.labels: np.zeros([BATCH_SIZE, 1], np.uint8)}
+                feed_dict = {model.labels: np.zeros([BATCH_SIZE, 1], np.uint8),
+                             model.z: np.random.randn(BATCH_SIZE, Z_DIM).astype(np.float32)}
                 target_tensor = graph.get_tensor_by_name(os.path.join(G_NAME, 'gen_out:0'))
                 images = sess.run(target_tensor, feed_dict=feed_dict) # get generated images
                 images = 127.5*(images+1)

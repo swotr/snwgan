@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from sn_ops import *
+from snops import *
 
 def upscale(x):
     return tf.image.resize_nearest_neighbor(x, 
