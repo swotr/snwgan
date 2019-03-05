@@ -181,19 +181,19 @@ class CifarGanModel(object):
         ''' This is for single GPU.
             You don't need to aggregate gradients. 
             So we use minimize() '''
-        d_opt = tf.train.AdamOptimizer(0.0002, beta1=0.5, beta2=0.99, epsilon=1e-6)
-        g_opt = tf.train.AdamOptimizer(0.0002, beta1=0.5, beta2=0.99, epsilon=1e-6)        
+        d_opt = tf.train.AdamOptimizer(0.0001, beta1=0.5, beta2=0.99, epsilon=1e-6)
+        g_opt = tf.train.AdamOptimizer(0.0001, beta1=0.5, beta2=0.99, epsilon=1e-6)        
         d_min = d_opt.minimize(self.d_loss, var_list=self.d_vars)
         g_min = g_opt.minimize(self.g_loss, var_list=self.g_vars)        
         return d_min, g_min
 
-    def get_optimizers_multigpu(self):
-        ''' This is for multiple GPUs.
-            You need to aggregate gradients.
-            We will do this in Trainer '''
-        d_opt = tf.train.AdamOptimizer(0.0004, beta1=0.5, beta2=0.99, epsilon=1e-6)
-        g_opt = tf.train.AdamOptimizer(0.0001, beta1=0.5, beta2=0.99, epsilon=1e-6)
-        return d_opt, g_opt
+    # def get_optimizers_multigpu(self):
+    #     ''' This is for multiple GPUs.
+    #         You need to aggregate gradients.
+    #         We will do this in Trainer '''
+    #     d_opt = tf.train.AdamOptimizer(0.0004, beta1=0.5, beta2=0.99, epsilon=1e-6)
+    #     g_opt = tf.train.AdamOptimizer(0.0001, beta1=0.5, beta2=0.99, epsilon=1e-6)
+    #     return d_opt, g_opt
 
 class CifarGanTrainer(object):
     def __init__(self):
