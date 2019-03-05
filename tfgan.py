@@ -231,7 +231,7 @@ class CifarGanTrainer(object):
                 sess.run(dataset_iter.initializer, feed_dict={model.images: train_images, 
                                                               model.labels: train_labels})
                 d_loss, g_loss = 0, 0
-                n_iter = (train_images.shape[0]+BATCH_SIZE-1)//BATCH_SIZE
+                n_iter = train_images.shape[0]//BATCH_SIZE
                 with tqdm(total=n_iter) as pbar:
                     while True:
                         try:
