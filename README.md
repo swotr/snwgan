@@ -1,9 +1,6 @@
 # snwgan
-<<<<<<< HEAD
 Easy-to-follow tensorflow implementation of GAN (specifically designed for WGAN with SN but it's easy to convert it to any GAN)
 
-=======
->>>>>>> 10e4452... Create README.md
 ## Features
 - [tensorflow] WGAN with Spectral Normalization
 - [tensorflow] Inception score (based on codes from https://github.com/tsc2017/Inception-Score/)
