@@ -1,0 +1,34 @@
+python ../c100_joint.py --test=True --gpu=0 --load=../train_log/c100_joint/model-98406 ;
+python inception_score.py --gpu=0 --data_dir=/home/minje/dev/dataset/cifar/cifar100/cifar-100-fake ;
+python ../c100_joint.py --test=True --gpu=0 --load=../train_log/c100_joint/model-99187 ;
+python inception_score.py --gpu=0 --data_dir=/home/minje/dev/dataset/cifar/cifar100/cifar-100-fake ;
+python ../c100_joint.py --test=True --gpu=0 --load=../train_log/c100_joint/model-99968 ;
+python inception_score.py --gpu=0 --data_dir=/home/minje/dev/dataset/cifar/cifar100/cifar-100-fake ;
+python ../c100_joint.py --test=True --gpu=0 --load=../train_log/c100_joint/model-100749 ;
+python inception_score.py --gpu=0 --data_dir=/home/minje/dev/dataset/cifar/cifar100/cifar-100-fake ;
+python ../c100_joint.py --test=True --gpu=0 --load=../train_log/c100_joint/model-101530 ; 
+python inception_score.py --gpu=0 --data_dir=/home/minje/dev/dataset/cifar/cifar100/cifar-100-fake ;
+
+model_names=(98406 99187 99968 100749 101530)
+for name in ${model_names[@]}; do
+    python ../c100_joint.py --test=True --gpu=1 --load=../train_log/c100_joint/model-$name
+    python inception_score.py --gpu=1 --data_dir=/home/minje/dev/dataset/cifar/cifar100/cifar-100-fake
+done
+
+
+model_names=(98406 99187 99968 100749 101530)
+for name in ${model_names[@]}; do
+    echo ../tfgan_joint.py --test=True --gpu=1 --load=../train_log/tfgan_joint/model-$name
+    python ../tfgan_joint.py --test=True --gpu=1 --load=../train_log/tfgan_joint/model-$name
+    echo inception_score.py --gpu=1 --data_dir=/home/minje/dev/dataset/cifar/cifar-10-fake
+    python inception_score.py --gpu=1 --data_dir=/home/minje/dev/dataset/cifar/cifar-10-fake
+done
+
+
+model_names=(95282 96844 98406 99968 101530)
+for name in ${model_names[@]}; do
+    echo ../stl_weak.py --test=True --gpu=0 --load=../train_log/stl_weak/model-$name
+    python ../stl_weak.py --test=True --gpu=0 --load=../train_log/stl_weak/model-$name
+    echo inception_score.py --gpu=0 --data_dir=/home/minje/dev/dataset/stl/stl10_fake
+    python inception_score.py --gpu=0 --data_dir=/home/minje/dev/dataset/stl/stl10_fake
+done
