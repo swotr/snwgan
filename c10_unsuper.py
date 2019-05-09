@@ -18,7 +18,6 @@ IMAGE_HEIGHT, IMAGE_WIDTH = 32, 32 # original image size
 CANON_HEIGHT, CANON_WIDTH = IMAGE_HEIGHT//1, IMAGE_WIDTH//1 # size to generate
 BASE_HEIGHT, BASE_WIDTH = IMAGE_HEIGHT//8, IMAGE_WIDTH//8 # base size of generator
 NUM_CLASSES = 10 # CIFAR10
-AUX_DIM = 128 # x% reconst error (sklearn TruncatedSVD)
 BASE_DIM = 32 # base number for channels (channels are multiple of this)
 BATCH_SIZE = 64 # batch size for training and testing
 Z_DIM = 128
@@ -60,16 +59,12 @@ class CifarData(object):
         print('images (numpy): {}'.format(self.images.shape))
         print('labels (numpy): {}'.format(self.labels.shape))
 
-        # Read inception logits
-        self.feats = np.load('/home/minje/dev/dataset/cifar/cifar10_inception_pool_3_reduced128.npy')
-        print('feats (numpy): {}'.format(self.feats.shape))
-
     def get_size(self):
         return self.images.shape[0]
 
     def get_data(self):
         for i in range(self.images.shape[0]):
-            yield self.images[i], self.feats[i]
+            yield self.images[i]
 
 class CifarGanModel(object):
     def __init__(self):
@@ -94,22 +89,11 @@ class CifarGanModel(object):
         l = resnet_block('res2', l, BASE_DIM*8, 3, 'up', is_training)
         l = resnet_block('res3', l, BASE_DIM*8, 3, 'up', is_training)                
         l = tf.nn.relu(batch_norm(l, is_training))
-        r = l
         l = conv(l, 3, 3, 1, name='conv_out')
         img = tf.nn.tanh(l, name='gen_out')
-
-        r = tf.nn.relu(batch_norm(conv(r, BASE_DIM*8, 7, 4, name='r1'), is_training))
-        r = tf.reshape(r, [-1, np.prod(r.shape.as_list()[1:])])
-        r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*8, l2_scale=0.0, name='r2'), is_training))
-        r = tf.layers.dropout(r, 0.5, training=is_training)
-        r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*8, l2_scale=0.0, name='r3'), is_training))
-        r = tf.layers.dropout(r, 0.5, training=is_training)
-        r = dense(r, AUX_DIM, l2_scale=0.0, name='r4')
-        lab = tf.identity(r, name='lab_out')
-
-        return img, lab
+        return img
     
-    def discriminator(self, images, labels, update_collection):    
+    def discriminator(self, images, update_collection):    
         l = images
         
         # Standard network
@@ -132,22 +116,18 @@ class CifarGanModel(object):
         l = snresnet_block('res4', l, BASE_DIM*4, 3, 'same', update_collection=update_collection)
         l = tf.nn.relu(l)
         l = tf.reduce_sum(l, axis=[1, 2]) # global sum pooling
-        x = snlinear('logit', l, 1, seed=None, update_collection=update_collection)
-        # label embedding
-        e = snembed('label_embed', labels, BASE_DIM*4, update_collection=update_collection) 
-        y = tf.reduce_sum(e*l, axis=1) # inner product of word vector and feature
-        return x+y
+        l = snlinear('logit', l, 1, seed=None, update_collection=update_collection)
+        return l
         
     def input(self):
         # Create placeholder for input
         self.images = tf.placeholder(tf.uint8, (None, IMAGE_HEIGHT, IMAGE_WIDTH, 3), name='images')
-        self.labels = tf.placeholder(tf.float32, (None, AUX_DIM), name='labels')
         self.z = tf.placeholder(tf.float32, (None, Z_DIM), name='z')
-        return self.images, self.labels, self.z
+        return self.images, self.z
 
     def build_model(self, is_training=True):        
         # Input placeholders
-        images, labels, z = self.input()        
+        images, z = self.input()        
         
         # Convert image from uint8 to float32.
         # Normalize.
@@ -155,13 +135,13 @@ class CifarGanModel(object):
         images = images/127.5-1
 
         with tf.variable_scope(G_NAME, reuse=tf.AUTO_REUSE):
-            fakes, fakes_lab = self.generator(z, is_training)
+            fakes = self.generator(z, is_training)
             tf.summary.image('real', images, 3)
         tf.summary.image('fake', fakes, 30)
         
         with tf.variable_scope(D_NAME, reuse=tf.AUTO_REUSE): # what happens in BN reuse?
-            logits_real = self.discriminator(images, labels, update_collection=None)
-            logits_fake = self.discriminator(fakes, fakes_lab, update_collection='NO_OPS')
+            logits_real = self.discriminator(images, update_collection=None)
+            logits_fake = self.discriminator(fakes, update_collection='NO_OPS')
 
         # Standard WGAN loss
         #self.d_loss = tf.reduce_mean(tf.nn.softplus(logits_fake)+tf.nn.softplus(-logits_real))        
@@ -236,13 +216,11 @@ class CifarGanTrainer(object):
                                 # make a batch
                                 image_batch, label_batch = sess.run(next_batch)
                                 feed_dict = {model.images: image_batch,
-                                             model.labels: label_batch,
                                              model.z: np.random.randn(BATCH_SIZE, Z_DIM).astype(np.float32)}
                                 _, _d_loss = sess.run([d_min, model.d_loss], feed_dict=feed_dict)
                             # Reuse the last batch (since G doesn't care)
                             # Make sure that z is newly sampled
                             feed_dict = {model.images: image_batch,
-                                         model.labels: label_batch,
                                          model.z: np.random.randn(BATCH_SIZE, Z_DIM).astype(np.float32)}
                             _, _g_loss, summary = sess.run([g_min, model.g_loss, model.summary], feed_dict=feed_dict)
                             d_loss += _d_loss
@@ -264,7 +242,7 @@ class CifarGanTrainer(object):
                 img_tensor = tf.get_default_graph().get_tensor_by_name(os.path.join(G_NAME, 'gen_out:0'))
                 imgs = sess.run(img_tensor, feed_dict={model.z: np.random.randn(100, Z_DIM).astype(np.float32)})
                 imgs = 127.5*(imgs+1)
-                imgs = np.clip(imgs, 0, 255).astype(np.uint8)                
+                imgs = np.clip(imgs, 0, 255).astype(np.uint8)
                 # Make and save snapshot.
                 fig, axs = plt.subplots(10, 10)
                 plt.subplots_adjust(hspace=0, wspace=0)
@@ -301,7 +279,7 @@ class CifarGanTester(object):
                 imgs = sess.run(img_tensor, feed_dict=feed_dict)
                 imgs = 127.5*(imgs+1)
                 imgs = np.clip(imgs, 0, 255).astype(np.uint8)                
-                for i in range(imgs.shape[0]):
+                for i in range(imgs.shape[0]):                    
                     fpath = os.path.join(test_dir, '{0:05d}_{1:03d}.jpg'.format(uid, 999))
                     cv2.imwrite(fpath, cv2.cvtColor(imgs[i], cv2.COLOR_RGB2BGR))
                     uid += 1

@@ -18,7 +18,6 @@ IMAGE_HEIGHT, IMAGE_WIDTH = 32, 32 # original image size
 CANON_HEIGHT, CANON_WIDTH = IMAGE_HEIGHT//1, IMAGE_WIDTH//1 # size to generate
 BASE_HEIGHT, BASE_WIDTH = IMAGE_HEIGHT//8, IMAGE_WIDTH//8 # base size of generator
 NUM_CLASSES = 10 # CIFAR10
-AUX_DIM = 200
 BASE_DIM = 32 # base number for channels (channels are multiple of this)
 BATCH_SIZE = 64 # batch size for training and testing
 Z_DIM = 128
@@ -57,27 +56,15 @@ class CifarData(object):
             images, labels = load(os.path.join(data_dir, 'data_batch_{}'.format(i)))
             self.images = np.vstack((self.images, images))
             self.labels = np.vstack((self.labels, one_hot(labels)))
-        # Read test batch
-        #images, labels = load(os.path.join(data_dir, 'test_batch'))
-        #self.images = np.vstack((self.images, images))
-        #self.labels = np.vstack((self.labels, labels))
         print('images (numpy): {}'.format(self.images.shape))
-        print('labels (numpy): {}'.format(self.labels.shape))
-
-        # Read inception logits
-        #self.feats = np.load('/home/minje/dev/dataset/cifar/cifar10_inception_logit.npy')
-        #self.feats = np.load('/home/minje/dev/dataset/cifar/cifar10_inception_logit_reduced.npy')
-        self.feats = np.load('/home/minje/dev/dataset/cifar/cifar10_inception_pool_3_reduced.npy')
-        print('feats (numpy): {}'.format(self.feats.shape))
+        print('labels (numpy): {}'.format(self.labels.shape))        
 
     def get_size(self):
         return self.images.shape[0]
 
     def get_data(self):
-        #return self.images, self.labels
-        #return self.images, self.feats
         for i in range(self.images.shape[0]):
-            yield self.images[i], self.feats[i]
+            yield self.images[i], self.labels[i]
 
     def get_data_with_label_noise(self, ratio):
         labels = np.argmax(self.labels, axis=1)
@@ -91,7 +78,7 @@ class CifarData(object):
         for idx in idxs: # random can't do all
             if labels[idx] == np.argmax(self.labels[idx]):
                 labels[idx] = (labels[idx]+1)%NUM_CLASSES
-        #return self.images, one_hot(labels)
+                
         for i in range(self.images.shape[0]):
             yield self.images[i], one_hot(labels[i])
 
@@ -129,17 +116,8 @@ class CifarGanModel(object):
         r = tf.layers.dropout(r, 0.5, training=is_training)
         r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*8, name='r3'), is_training))        
         r = tf.layers.dropout(r, 0.5, training=is_training)
-        #r = dense(r, NUM_CLASSES, name='r4')
-        r = dense(r, AUX_DIM, name='r4')
-        #lab = tf.nn.softmax(r, name='lab_out')
-        lab = tf.identity(r, name='lab_out')
-
-        # r = resnet_block('r1', r, BASE_DIM*8, 3, 'down', is_training)
-        # r = resnet_block('r2', r, BASE_DIM*8, 3, 'down', is_training)
-        # r = resnet_block('r3', r, BASE_DIM*8, 3, 'same', is_training)
-        # r = resnet_block('r4', r, BASE_DIM*8, 3, 'same', is_training)
-        # r = tf.nn.relu(batch_norm(r, is_training))
-        # r = tf.reduce_sum(r, axis=[1, 2])
+        r = dense(r, NUM_CLASSES, name='r4')
+        lab = tf.nn.softmax(r, name='lab_out')
         
         return img, lab
     
@@ -175,8 +153,7 @@ class CifarGanModel(object):
     def input(self):
         # Create placeholder for input
         self.images = tf.placeholder(tf.uint8, (None, IMAGE_HEIGHT, IMAGE_WIDTH, 3), name='images')
-        #self.labels = tf.placeholder(tf.float32, (None, NUM_CLASSES), name='labels') # assume one-hot form        
-        self.labels = tf.placeholder(tf.float32, (None, AUX_DIM), name='labels') # assume one-hot form        
+        self.labels = tf.placeholder(tf.float32, (None, NUM_CLASSES), name='labels') # assume one-hot form    
         self.z = tf.placeholder(tf.float32, (None, Z_DIM), name='z')
         return self.images, self.labels, self.z
 
@@ -204,6 +181,7 @@ class CifarGanModel(object):
         # Hinge WGAN loss
         self.d_loss = tf.reduce_mean(tf.nn.relu(1.0-logits_real)+tf.nn.relu(1.0+logits_fake))
         self.g_loss = -tf.reduce_mean(logits_fake)
+        self.g_loss += tf.losses.get_regularization_loss()
         tf.summary.scalar('g_loss', self.g_loss)
         tf.summary.scalar('d_loss', self.d_loss)        
         
@@ -238,7 +216,8 @@ class CifarGanTrainer(object):
         #train_images, train_labels = data.get_data() # load numpy array        
         #train_images, train_labels = data.get_data_with_label_noise(0.0) # load numpy array
         #dataset = tf.data.Dataset.from_tensor_slices((model.images, model.labels))
-        dataset = tf.data.Dataset.from_generator(data.get_data,(tf.uint8, tf.float32), ([CANON_HEIGHT, CANON_WIDTH, 3], AUX_DIM))
+        dataset = tf.data.Dataset.from_generator(data.get_data_with_label_noise(0.0),
+            (tf.uint8, tf.float32), ([CANON_HEIGHT, CANON_WIDTH, 3], NUM_CLASSES))
         dataset = dataset.prefetch(BATCH_SIZE*10)
         dataset = dataset.shuffle(buffer_size=10000)
         dataset = dataset.batch(BATCH_SIZE, drop_remainder=True)
@@ -259,9 +238,8 @@ class CifarGanTrainer(object):
             # training body
             for epoch in range(EPOCHS):
                 # (re)initialize dataset iterator
-                # sess.run(dataset_iter.initializer, feed_dict={model.images: train_images,  
-                #                                               model.labels: train_labels})
                 sess.run(dataset_iter.initializer)
+                
                 d_loss, g_loss = 0, 0
                 n_iter = data.get_size()//(BATCH_SIZE*N_CRITICS)
                 with tqdm(total=n_iter) as pbar:
