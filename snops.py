@@ -9,9 +9,9 @@ def deconv(l, filters, kernel, stride, name):
     return tf.layers.conv2d_transpose(l, filters, kernel, strides=stride, padding='same', 
         kernel_initializer=tf.glorot_uniform_initializer(np.sqrt(2)), name=name)
 
-def dense(l, filters, name):
+def dense(l, filters, l2_scale, name):
     return tf.layers.dense(l, filters,
-        kernel_initializer=tf.glorot_uniform_initializer(np.sqrt(2)), name=name)
+        kernel_initializer=tf.glorot_uniform_initializer(np.sqrt(2)), kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale), name=name)
 
 def spectral_normed_weight(w, num_iters=1, update_collection=None):
     """Performs Spectral Normalization on a weight tensor.

@@ -18,12 +18,12 @@ from IS.inception_score import *
 IMAGE_HEIGHT, IMAGE_WIDTH = 96, 96 # original image size
 CANON_HEIGHT, CANON_WIDTH = IMAGE_HEIGHT//2, IMAGE_WIDTH//2 # size to generate (48, 48)
 BASE_HEIGHT, BASE_WIDTH = CANON_HEIGHT//8, CANON_WIDTH//8 # base size of generator (6, 6)
-AUX_DIM = 30
+AUX_DIM = 32 # x% reconstruction error (truncated SVD w/ sklearn)
 BASE_DIM = 32 # base number for channels (channels are multiple of this)
 BATCH_SIZE = 64 # batch size for training and testing
 Z_DIM = 128
 N_CRITICS = 1 # number of D updates per each G update
-EPOCHS = 65*N_CRITICS # roughly 100K G iterations
+EPOCHS = 130*N_CRITICS # roughly 200K G iterations
 G_NAME = 'generator' # generator name for scoping
 D_NAME = 'discriminator' # discriminator name for scoping
 
@@ -31,7 +31,7 @@ class StlData(object):
     '''
     STL dataset without label
     '''
-    def __init__(self, file):        
+    def __init__(self, file):
         with open(file, 'rb') as fobj:
             self.images = np.fromfile(fobj, dtype=np.uint8)
             self.images = self.images.reshape([-1, 3, 96, 96])
@@ -39,7 +39,7 @@ class StlData(object):
             print('images (numpy): {}'.format(self.images.shape))
         
         # Read inception logits
-        self.feats = np.load('/home/minje/dev/dataset/stl/stl_unlabeled_inception_pool_3_reduced30.npy')
+        self.feats = np.load('/home/minje/dev/dataset/stl/stl_unlabeled_inception_pool_3_reduced32.npy')
         print('feats (numpy): {}'.format(self.feats.shape))
 
     def get_size(self):
@@ -56,7 +56,7 @@ class StlGanModel(object):
     def generator(self, z, is_training):
         # Standard network
         # l = z
-        # l = dense(l, BASE_HEIGHT*BASE_WIDTH*BASE_DIM*16, name='fc_in')
+        # l = dense(l, BASE_HEIGHT*BASE_WIDTH*BASE_DIM*16, l2_scale=0.0, name='fc_in')
         # l = tf.reshape(l, [-1, BASE_HEIGHT, BASE_WIDTH, BASE_DIM*16])        
         # l = tf.nn.relu(batch_norm(deconv(l, BASE_DIM*8, 4, 2, name='deconv1'), is_training))        
         # l = tf.nn.relu(batch_norm(deconv(l, BASE_DIM*4, 4, 2, name='deconv2'), is_training))        
@@ -66,7 +66,7 @@ class StlGanModel(object):
     
         # ResNet (from 'Improved Training of WGAN ...')
         l = z
-        l = dense(l, BASE_HEIGHT*BASE_WIDTH*BASE_DIM*8, name='fc_in')
+        l = dense(l, BASE_HEIGHT*BASE_WIDTH*BASE_DIM*8, l2_scale=0.0, name='fc_in')
         l = tf.reshape(l, [-1, BASE_HEIGHT, BASE_WIDTH, BASE_DIM*8])
         l = resnet_block('res1', l, BASE_DIM*8, 3, 'up', is_training)
         l = resnet_block('res2', l, BASE_DIM*8, 3, 'up', is_training)
@@ -76,20 +76,21 @@ class StlGanModel(object):
         l = conv(l, 3, 3, 1, name='conv_out')
         img = tf.nn.tanh(l, name='gen_out')
 
-        r = tf.reduce_sum(r, axis=[1, 2])
-        r = tf.concat([r, z], axis=1)
-        r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*8, name='r1'), is_training))
+        r = conv(r, BASE_DIM*8, 7, 4, name='r1')
+        r = tf.nn.relu(batch_norm(r, is_training))
+        r = tf.reshape(r, [-1, np.prod(r.shape.as_list()[1:])])
+        r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*4, l2_scale=0.0, name='fc_r1'), is_training))
         r = tf.layers.dropout(r, 0.5, training=is_training)
-        r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*8, name='r2'), is_training))        
+        r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*4, l2_scale=0.0, name='fc_r2'), is_training))
         r = tf.layers.dropout(r, 0.5, training=is_training)
-        r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*8, name='r3'), is_training))
+        r = tf.nn.relu(batch_norm(dense(r, BASE_DIM*4, l2_scale=0.0, name='fc_r3'), is_training))
         r = tf.layers.dropout(r, 0.5, training=is_training)
-        r = dense(r, AUX_DIM, name='r4')
+        r = dense(r, AUX_DIM, l2_scale=0.0, name='fc_lab')
         lab = tf.identity(r, name='lab_out')
 
         return img, lab
     
-    def discriminator(self, images, labels, update_collection):    
+    def discriminator(self, images, labels, update_collection):
         l = images
         
         # Standard network
@@ -149,6 +150,7 @@ class StlGanModel(object):
         # Hinge WGAN loss
         self.d_loss = tf.reduce_mean(tf.nn.relu(1.0-logits_real)+tf.nn.relu(1.0+logits_fake))
         self.g_loss = -tf.reduce_mean(logits_fake)
+        self.g_loss += tf.losses.get_regularization_loss()
         tf.summary.scalar('g_loss', self.g_loss)
         tf.summary.scalar('d_loss', self.d_loss)        
         
@@ -182,7 +184,8 @@ class StlGanTrainer(object):
         # Create placeholders for efficient batch feed with tf.dataset
         #train_images, train_labels = data.get_data() # load numpy array        
         #dataset = tf.data.Dataset.from_tensor_slices((model.images, model.labels))
-        dataset = tf.data.Dataset.from_generator(data.get_data, (tf.uint8, tf.float32), ([IMAGE_HEIGHT, IMAGE_WIDTH, 3], AUX_DIM))
+        dataset = tf.data.Dataset.from_generator(data.get_data, 
+            (tf.uint8, tf.float32), ([IMAGE_HEIGHT, IMAGE_WIDTH, 3], AUX_DIM))
         dataset = dataset.map(lambda x, y : (tf.image.resize_images(x, [CANON_HEIGHT, CANON_WIDTH]), y))
         dataset = dataset.prefetch(BATCH_SIZE*10)
         dataset = dataset.shuffle(buffer_size=10000)

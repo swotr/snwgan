@@ -22,7 +22,7 @@ BASE_DIM = 32 # base number for channels (channels are multiple of this)
 BATCH_SIZE = 64 # batch size for training and testing
 Z_DIM = 128
 N_CRITICS = 1 # number of D updates per each G update
-EPOCHS = 65*N_CRITICS # roughly 100K G iterations
+EPOCHS = 130*N_CRITICS # roughly 100K G iterations
 G_NAME = 'generator' # generator name for scoping
 D_NAME = 'discriminator' # discriminator name for scoping
 
@@ -51,7 +51,7 @@ class StlGanModel(object):
     def generator(self, z, is_training):
         # Standard network
         # l = z
-        # l = dense(l, BASE_HEIGHT*BASE_WIDTH*BASE_DIM*16, name='fc_in')
+        # l = dense(l, BASE_HEIGHT*BASE_WIDTH*BASE_DIM*16, l2_scale=0.0, name='fc_in')
         # l = tf.reshape(l, [-1, BASE_HEIGHT, BASE_WIDTH, BASE_DIM*16])        
         # l = tf.nn.relu(batch_norm(deconv(l, BASE_DIM*8, 4, 2, name='deconv1'), is_training))        
         # l = tf.nn.relu(batch_norm(deconv(l, BASE_DIM*4, 4, 2, name='deconv2'), is_training))        
@@ -61,7 +61,7 @@ class StlGanModel(object):
     
         # ResNet (from 'Improved Training of WGAN ...')
         l = z
-        l = dense(l, BASE_HEIGHT*BASE_WIDTH*BASE_DIM*8, name='fc_in')
+        l = dense(l, BASE_HEIGHT*BASE_WIDTH*BASE_DIM*8, l2_scale=0.0, name='fc_in')
         l = tf.reshape(l, [-1, BASE_HEIGHT, BASE_WIDTH, BASE_DIM*8])
         l = resnet_block('res1', l, BASE_DIM*8, 3, 'up', is_training)
         l = resnet_block('res2', l, BASE_DIM*8, 3, 'up', is_training)
@@ -128,6 +128,7 @@ class StlGanModel(object):
         # Hinge WGAN loss
         self.d_loss = tf.reduce_mean(tf.nn.relu(1.0-logits_real)+tf.nn.relu(1.0+logits_fake))
         self.g_loss = -tf.reduce_mean(logits_fake)
+        #self.g_loss += tf.losses.get_regularization_loss()
         tf.summary.scalar('g_loss', self.g_loss)
         tf.summary.scalar('d_loss', self.d_loss)        
         
